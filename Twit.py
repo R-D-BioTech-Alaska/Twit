@@ -59,7 +59,7 @@ def get_formatted_date():
 class AutoTweetApp:
     def __init__(self, master):
         self.master = master
-        master.title("Auto Tweet Program")
+        master.title("Twit - Auto Tweet Program")
         master.configure(bg='#ADD8E6')
 
         self.scheduled_tweets = []

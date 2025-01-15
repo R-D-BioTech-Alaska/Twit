@@ -1,15 +1,18 @@
-
 # This program is a rough draft, but it works well for current x.com settings. I created this to spread more information about Qelm.
 # Currently this program calls your keys from the keys.py file and sends random texts from a text file you include in the same folder.
 # I will update this more as time allows, but don't expect much.
-
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import datetime, os, random, re
 import tweepy
 import openai
+import ssl
+import urllib.parse
+import threading
 import keys
+
+#  New helper functions from references
 
 def initialize_tweepy():
     client_v2 = tweepy.Client(
@@ -26,19 +29,30 @@ def initialize_tweepy():
 def generate_response(prompt):
     openai.api_key = keys.openai_key
     model = "gpt-4-1106-preview"
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0
-    )
-    return response.choices[0].message.content.strip()
+    # Check if ChatCompletion is available (new API)
+    if hasattr(openai, 'ChatCompletion'):
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+        return response.choices[0].message.content.strip()
+    else:
+        # Fallback using text completion for older API versions
+        fallback_model = "text-davinci-003"
+        response = openai.Completion.create(
+            model=fallback_model,
+            prompt=prompt,
+            temperature=0,
+            max_tokens=150
+        )
+        return response.choices[0].text.strip()
 
 def get_formatted_date():
     return datetime.date.today().strftime("%B %d, %Y")
-
 
 # Main Application (GUI + Scheduling)
 

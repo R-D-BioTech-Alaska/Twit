@@ -1,4 +1,8 @@
-# Twit
+<p align="center">Twit
+
+<p align="center">
+  <img src="https://github.com/R-D-BioTech-Alaska/Twit/blob/main/img/twit.jpg" alt="Twit" width="300">
+</p>
 Twit is an open source auto-tweet program with scheduler and AI addon.
 
 Twit is a Python-based GUI application built with Tkinter that allows you to schedule tweets, generate tweets using OpenAI's GPT-4, and manage scheduled tweets. It integrates with Twitter via Tweepy and supports multi-line tweets from a file, AI-generated tweets, and scheduling options with an intuitive interface.

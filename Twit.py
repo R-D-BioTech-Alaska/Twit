@@ -4,7 +4,7 @@
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import datetime, os, random, re
+import datetime, os, random, re, time
 import tweepy
 import openai
 import ssl
@@ -12,7 +12,7 @@ import urllib.parse
 import threading
 import keys
 
-#  New helper functions from references
+
 
 def initialize_tweepy():
     client_v2 = tweepy.Client(
@@ -29,7 +29,6 @@ def initialize_tweepy():
 def generate_response(prompt):
     openai.api_key = keys.openai_key
     model = "gpt-4-1106-preview"
-    # Check if ChatCompletion is available (new API)
     if hasattr(openai, 'ChatCompletion'):
         response = openai.ChatCompletion.create(
             model=model,
@@ -41,7 +40,6 @@ def generate_response(prompt):
         )
         return response.choices[0].message.content.strip()
     else:
-        # Fallback using text completion for older API versions
         fallback_model = "text-davinci-003"
         response = openai.Completion.create(
             model=fallback_model,
@@ -54,12 +52,11 @@ def generate_response(prompt):
 def get_formatted_date():
     return datetime.date.today().strftime("%B %d, %Y")
 
-# Main Application (GUI + Scheduling)
 
 class AutoTweetApp:
     def __init__(self, master):
         self.master = master
-        master.title("Twit - Auto Tweet Program")
+        master.title("Auto Tweet Program")
         master.configure(bg='#ADD8E6')
 
         self.scheduled_tweets = []
@@ -231,7 +228,6 @@ class AutoTweetApp:
                 tweets = re.findall(r"\{(.*?)\}", content, re.DOTALL)
                 if not tweets:
                     raise ValueError("No tweets found enclosed in curly braces.")
-                tweet_content = random.choice(tweets).strip()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to get tweet from file: {e}")
                 return
@@ -260,13 +256,20 @@ class AutoTweetApp:
                 for hour_str in selected_hours:
                     hour_int = int(hour_str.split(':')[0])
                     scheduled_datetime = datetime.datetime.combine(current_date, datetime.time(hour_int, 0))
+                    if self.use_file_var.get():
+                        content_to_schedule = random.choice(tweets).strip()
+                    else:
+                        content_to_schedule = tweet_content
+                    duplicate = any(t["content"] == content_to_schedule and t["datetime"] == scheduled_datetime for t in self.scheduled_tweets)
+                    if duplicate:
+                        continue
                     tweet_data = {
-                        "content": tweet_content,
+                        "content": content_to_schedule,
                         "datetime": scheduled_datetime,
                         "active": True
                     }
                     self.scheduled_tweets.append(tweet_data)
-                    display_text = f"{tweet_content[:30]}... at {scheduled_datetime.strftime('%Y-%m-%d %H:%M')} (Active)"
+                    display_text = f"{content_to_schedule[:30]}... at {scheduled_datetime.strftime('%Y-%m-%d %H:%M')} (Active)"
                     self.listbox_scheduled.insert(tk.END, display_text)
             current_date += datetime.timedelta(days=1)
 
@@ -310,14 +313,15 @@ class AutoTweetApp:
                 time_str = tweet_dict["datetime"].strftime("%H:%M")
                 self.listbox_daily.insert(tk.END, f"{time_str} - {tweet_dict['content'][:30]}...")
 
+        client_v2, _ = initialize_tweepy()
         for tweet_dict in self.scheduled_tweets:
             if tweet_dict["active"] and tweet_dict["datetime"] <= now:
                 try:
-                    client_v2, _ = initialize_tweepy()
                     posted_tweet = client_v2.create_tweet(text=tweet_dict["content"])
                     print(f"Tweet Posted: ID {posted_tweet.data['id']}")
                     tweet_dict["active"] = False
                     self.update_progress(100)
+                    time.sleep(1)  # Throttle requests
                 except tweepy.TweepyException as e:
                     messagebox.showerror("Error", f"Error posting tweet: {e}")
 

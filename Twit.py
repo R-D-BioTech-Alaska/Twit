@@ -1,6 +1,6 @@
 # This program is a rough draft, but it works well for current x.com settings. I created this to spread more information about Qelm.
 # Currently this program calls your keys from the keys.py file and sends random texts from a text file you include in the same folder.
-# I will update this more as time allows, but don't expect much.
+# Fixed a few repeat issues.
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -11,8 +11,6 @@ import ssl
 import urllib.parse
 import threading
 import keys
-
-
 
 def initialize_tweepy():
     client_v2 = tweepy.Client(
@@ -61,6 +59,9 @@ class AutoTweetApp:
 
         self.scheduled_tweets = []
         self.client_v2 = None
+
+        # Track file uploads for both standard tweet usage and AI template usage
+        self.uploaded_file_path = None
 
         self.notebook = ttk.Notebook(master)
         self.notebook.pack(fill='both', expand=True)
@@ -134,8 +135,14 @@ class AutoTweetApp:
         frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(frame, text="AI Tweet Template:").grid(row=0, column=0, sticky=tk.W)
+
+        # AI template from uploaded file
+        self.use_file_for_ai_var = tk.BooleanVar()
+        self.check_use_file_for_ai = ttk.Checkbutton(frame, text="Use file for AI template", variable=self.use_file_for_ai_var)
+        self.check_use_file_for_ai.grid(row=0, column=1, sticky='w')
+
         self.ai_template = tk.Text(frame, height=3, width=40)
-        self.ai_template.grid(row=1, column=0, columnspan=2, pady=3, sticky='ew')
+        self.ai_template.grid(row=1, column=0, columnspan=3, pady=3, sticky='ew')
 
         self.btn_preview_ai = ttk.Button(frame, text="Generate Preview", command=self.preview_ai_tweet)
         self.btn_preview_ai.grid(row=2, column=0, pady=3, sticky='ew')
@@ -145,7 +152,7 @@ class AutoTweetApp:
 
         ttk.Label(frame, text="Preview:").grid(row=3, column=0, sticky=tk.W)
         self.ai_preview = tk.Text(frame, height=4, width=40, state='disabled')
-        self.ai_preview.grid(row=4, column=0, columnspan=2, pady=3, sticky='ew')
+        self.ai_preview.grid(row=4, column=0, columnspan=3, pady=3, sticky='ew')
 
     def create_progress_daily_tab(self, parent):
         frame = ttk.Frame(parent, padding="5")
@@ -179,10 +186,23 @@ class AutoTweetApp:
             messagebox.showerror("Error", f"Failed to send test tweet: {e}")
 
     def preview_ai_tweet(self):
-        prompt = self.ai_template.get("1.0", tk.END).strip()
+        if self.use_file_for_ai_var.get():
+            if not self.uploaded_file_path:
+                messagebox.showerror("Error", "No file has been uploaded for AI template.")
+                return
+            try:
+                with open(self.uploaded_file_path, 'r', encoding='utf-8') as f:
+                    prompt = f.read().strip()
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not read AI template from file: {e}")
+                return
+        else:
+            prompt = self.ai_template.get("1.0", tk.END).strip()
+
         if not prompt:
             messagebox.showerror("Error", "Please provide an AI tweet template.")
             return
+
         try:
             tweet_text = generate_response(prompt)
             self.ai_preview.config(state='normal')
@@ -193,11 +213,25 @@ class AutoTweetApp:
             messagebox.showerror("Error", f"AI generation failed: {e}")
 
     def send_ai_custom_tweet(self):
-        prompt = self.ai_template.get("1.0", tk.END).strip()
+        client_v2, _ = initialize_tweepy()
+
+        if self.use_file_for_ai_var.get():
+            if not self.uploaded_file_path:
+                messagebox.showerror("Error", "No file has been uploaded for AI template.")
+                return
+            try:
+                with open(self.uploaded_file_path, 'r', encoding='utf-8') as f:
+                    prompt = f.read().strip()
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not read AI template from file: {e}")
+                return
+        else:
+            prompt = self.ai_template.get("1.0", tk.END).strip()
+
         if not prompt:
             messagebox.showerror("Error", "Please provide an AI tweet template.")
             return
-        client_v2, _ = initialize_tweepy()
+
         try:
             tweet_text = generate_response(prompt)
         except Exception as e:
@@ -216,6 +250,7 @@ class AutoTweetApp:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     _ = f.read()
+                self.uploaded_file_path = file_path
                 messagebox.showinfo("File Loaded", f"Successfully loaded {os.path.basename(file_path)}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to read file: {e}")
@@ -256,13 +291,22 @@ class AutoTweetApp:
                 for hour_str in selected_hours:
                     hour_int = int(hour_str.split(':')[0])
                     scheduled_datetime = datetime.datetime.combine(current_date, datetime.time(hour_int, 0))
+                    # Skip scheduling if the scheduled time is now or already in the past
+                    if scheduled_datetime <= datetime.datetime.now():
+                        continue
+
                     if self.use_file_var.get():
                         content_to_schedule = random.choice(tweets).strip()
                     else:
                         content_to_schedule = tweet_content
-                    duplicate = any(t["content"] == content_to_schedule and t["datetime"] == scheduled_datetime for t in self.scheduled_tweets)
+
+                    duplicate = any(
+                        t["content"] == content_to_schedule and t["datetime"] == scheduled_datetime
+                        for t in self.scheduled_tweets
+                    )
                     if duplicate:
                         continue
+
                     tweet_data = {
                         "content": content_to_schedule,
                         "datetime": scheduled_datetime,
@@ -307,12 +351,14 @@ class AutoTweetApp:
     def run_scheduler(self):
         now = datetime.datetime.now()
 
+        # Update today's schedule listbox 
         self.listbox_daily.delete(0, tk.END)
         for tweet_dict in self.scheduled_tweets:
             if tweet_dict["active"] and tweet_dict["datetime"].date() == now.date():
                 time_str = tweet_dict["datetime"].strftime("%H:%M")
                 self.listbox_daily.insert(tk.END, f"{time_str} - {tweet_dict['content'][:30]}...")
 
+        # Attempt to post tweets that are due
         client_v2, _ = initialize_tweepy()
         for tweet_dict in self.scheduled_tweets:
             if tweet_dict["active"] and tweet_dict["datetime"] <= now:
@@ -325,6 +371,7 @@ class AutoTweetApp:
                 except tweepy.TweepyException as e:
                     messagebox.showerror("Error", f"Error posting tweet: {e}")
 
+        # Check again state (edit value in seconds)
         self.master.after(60000, self.run_scheduler)
 
     def start(self):
